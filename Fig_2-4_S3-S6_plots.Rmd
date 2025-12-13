@@ -1,0 +1,720 @@
+---
+title: "starvation_ms_scanners"
+author: "keatj"
+date: "2025-11-15"
+output: html_document
+---
+
+Table of Contents:
+1. Loading and preparing datasets
+2. CFUs vs. Time Starved in different osmolarities (Fig. 2A)
+3. Lag vs. Time Starved in different osmolarities (Fig. 2B)
+4. Colony appearance times for WT cultures in different osmolarities (Fig. 3A)
+5. Colony Appearance times for phaC cultures in different osmolarities (Fig. 3B)
+6. Var/Mean Ratio of appearance times for all cultures and conditions (Fig. 3C)
+7. Sample of colony trajectories from phaC 10 day high osmolarity (Fig. 3D)
+8. Growth rates of WT in all conditions (Fig. 4A)
+9. Growth rates of phaC in all conditions (Fig. 4B)
+10. 0 vs. 5 and 5 vs. 10 days wt trajectory samples with time since appearance (Fig. S3)
+11. Growth rate variance-to-mean ratio from colony distributions (Fig. S4)
+12. Correlation between growth rate and appearance time at 20 days for WT and phaC (Fig. S5)
+13. Mean and median behavior of colony appearance time and growth rate distributions through time starved (Fig. S6)
+14. Significance tests
+
+Load libraries needed for plots:
+```{r}
+library(tidyverse)
+library(svglite)
+library(ggExtra)
+library(ggbeeswarm)
+library(ggridges)
+library(readxl)
+library(cowplot)
+library(ggtext)
+library(afex)
+```
+
+1: Loading and preparing data sets
+```{r}
+scan_df <- read.csv("colony_data_overall.csv")
+traj_df <- read.csv("colony_trajectories_overall.csv")
+curves <- read.csv("growth_curves_fitted_data.csv")
+cfus <- read_excel("cfu_counts.xlsx")
+```
+
+Universal Variables:
+```{r}
+strain_cols <- c("wt" = "#4E79A7", "kb" = "#E15759")
+strain_labs <- as_labeller(c(`kb` = "Δ*phaC*", `wt` = "WT"))
+```
+
+2. CFUs vs. Time Starved in different osmolarities (Fig. 2A)
+```{r}
+plot1 <- curves %>%
+  select(-X) %>%
+  distinct(strain, cond, time, rep, .keep_all = T) %>%
+  full_join(cfus %>% select(-c(well, count2)), by = c("strain", "cond", "time", "rep")) %>%
+  group_by(strain, time, cond)%>%
+  reframe(mean_cfu = mean(cfus), across()) %>%
+  distinct(strain, time, cond, .keep_all = T) %>%
+  mutate(strain = factor(strain, levels = c("wt", "kb")))
+
+f2a <- plot1%>%
+  ggplot(aes(x = time, y = mean_cfu, color = strain, group = interaction(strain,cond))) +
+  geom_point(size = 2.5, show.legend = F) +
+  geom_line(aes(linetype = cond), size = 1.2) +
+  scale_y_log10(limits = c(5e06, 5e08), breaks = c(5e06, 5e07, 5e08), expand = c(0, 0.25)) +
+  theme_classic() +
+  labs(
+    x = "Time Starved (Days)",
+    y = "Viability (CFU/mL)",
+    color = ""
+  ) +
+  facet_wrap(~strain, labeller = strain_labs) +
+  scale_color_discrete(type = strain_cols) +
+  scale_linetype_manual(name = "Osmolarity", values = c("L" = "11", "M" = "31", "H" = "solid"), breaks = c("L", "M", "H"), labels = c("Low", "Medium", "High")) +
+  theme(
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    legend.position = "top",
+    axis.title = element_text(size = 20),
+    axis.text.y = element_text(size = 16, angle = 90, hjust = 0.5),
+    axis.text.x = element_text(size = 16),
+    axis.ticks = element_line(linewidth = 1),
+    plot.title = element_text(size = 20),
+    strip.text = ggtext::element_markdown(size = 18, margin = margin(4,4,4,4)),
+    strip.background = element_rect(color = "black", linewidth = 0.75),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.75),
+    panel.spacing = unit(0.3, "lines")
+  ) +
+  guides(color = "none",
+         linetype = guide_legend(order = 2, keywidth = 2.5, override.aes = list(linewidth = 2)),
+         shape = guide_legend(order = 2, keywidth = 2.5, override.aes = list(size = 5)))
+
+ggsave(filename = "starvation_fig_2A.svg", plot = f2a, width = 6, height = 4.5)
+```
+
+3. Lag vs. Time Starved in different osmolarities (Fig. 2B)
+```{r}
+plot1 <- curves %>%
+  select(-X) %>%
+  distinct(strain, cond, time, rep, .keep_all = T) %>%
+  full_join(cfus %>% select(-c(well, count2)), by = c("strain", "cond", "time", "rep")) %>%
+  group_by(strain, time, cond)%>%
+  reframe(mean_cfu = mean(cfus), across()) %>%
+  distinct(strain, time, cond, .keep_all = T) %>%
+  mutate(strain = factor(strain, levels = c("wt", "kb")))
+
+f2b <- plot1%>%
+  ggplot(aes(x = time, y = mean_lag, color = strain, group = interaction(strain,cond))) +
+  geom_errorbar(aes(x = time, y = mean_lag, ymin = mean_lag - sd_lag, ymax = mean_lag + sd_lag, color = strain), linewidth = 1.0, width = 0.5, inherit.aes = F, show.legend = F) +
+  geom_point(size = 2.5, show.legend = F) +
+  geom_line(aes(linetype = cond), size = 1.2) +
+  scale_y_continuous(breaks = c(5, 15, 25)) +
+  theme_classic() +
+  labs(
+    x = "Time Starved (Days)",
+    y = "Effective Lag (hr)",
+    color = ""
+  ) +
+  facet_wrap(~strain) +
+  scale_color_discrete(type = strain_cols) +
+  scale_linetype_manual(name = "Osmolarity", values = c("L" = "11", "M" = "31", "H" = "solid"), breaks = c("L", "M", "H"), labels = c("Low", "Medium", "High")) +
+  theme(
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    legend.position = "none",
+    axis.title = element_text(size = 20),
+    axis.text.y = element_text(size = 16, angle = 90, hjust = 0.5),
+    axis.text.x = element_text(size = 16),
+    axis.ticks = element_line(linewidth = 1),
+    plot.title = element_text(size = 20),
+    strip.text = element_blank(),
+    strip.background = element_rect(color = "black", linewidth = 0.75),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.75),
+    panel.spacing = unit(0.3, "lines")
+  ) +
+  guides(color = "none",
+         linetype = guide_legend(order = 2, keywidth = 2.5, override.aes = list(linewidth = 2)))
+
+ggsave(filename = "starvation_fig_2B.svg", plot = f2b, width = 6, height = 3.5)
+```
+
+4. Colony appearance times for WT cultures in different osmolarities (Fig. 3A)
+```{r}
+cfus_slim <- cfus %>%
+  select(c(strain, rep, cond, time, cfus)) %>%
+  group_by(strain, time, cond)%>%
+  reframe(mean_cfu = mean(cfus)) %>%
+  distinct(strain, time, cond, .keep_all = T) %>%
+  ungroup() %>%
+  rename("Strain" = "strain", "Condition" = "cond", "Time" =  "time")
+
+density_scan_df <- scan_df %>%
+  full_join(cfus_slim, by = c("Strain", "Condition", "Time")) %>%
+  na.omit() %>%
+  mutate(Condition = factor(Condition, levels = c("L","M","H"),
+         labels = c("Low", "Medium", "High")))
+
+f3a <- density_scan_df %>%
+  filter(Strain == "wt") %>%
+  mutate(Times = factor(Time)) %>%
+  ggplot(aes(x = arisal_time,
+             y = Times, 
+             group = interaction(Time, Condition),
+             fill = mean_cfu)) +
+  geom_hline(
+  data = density_scan_df %>%
+    mutate(Times = factor(Time)) %>%
+    distinct(Condition, Times),
+  aes(yintercept = as.numeric(Times)),
+  linetype = "solid") +
+  geom_density_ridges(scale = 1.4) +
+  coord_flip(expand = T) +
+  scale_y_discrete(expand = expansion(mult = c(0,0.2))) +
+  scale_x_continuous(limits = c(45, 105), breaks = c(50, 75, 100)) +
+  theme_classic() +
+  facet_wrap(~Condition) +
+  labs(
+    y = "Time Starved (Days)",
+    x = "Appearance Time (hr)"
+  ) +
+  scale_fill_gradient(high = "#9BB0CC", low = "#192536", name = "  Density\n(CFU/mL)", limits = c(8e06, 4e08), breaks = c(3e08, 2e08, 1e08)) +
+  theme(
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    axis.text.y = element_text(size = 16, angle = 90, hjust = 0.5),
+    axis.text.x = element_text(size = 16),
+    axis.ticks.x = element_blank(),
+    axis.ticks.y = element_line(linewidth = 1, color = "black"),
+    plot.title = element_text(size = 20),
+    strip.text = ggtext::element_markdown(size = 18, margin = margin(4,4,4,4)),
+    strip.background = element_rect(color = "black", linewidth = 0.75),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.75),
+    panel.spacing = unit(0.5, "lines")
+)
+
+ggsave(filename = "starvation_fig_3A.svg", plot = f3a, width = 11, height = 4)
+```
+
+5. Colony Appearance times for phaC cultures in different osmolarities (Fig. 3B)
+```{r}
+f3b <- density_scan_df %>%
+  filter(Strain == "kb") %>%
+  mutate(Times = factor(Time)) %>%
+  ggplot(aes(x = arisal_time,
+             y = Times, 
+             group = interaction(Time, Condition),
+             fill = mean_cfu)) +
+  geom_hline(
+  data = density_scan_df %>%
+    mutate(Times = factor(Time)) %>%
+    distinct(Condition, Times),
+  aes(yintercept = as.numeric(Times)),
+  linetype = "solid") +
+  geom_density_ridges(scale = 1.4) +
+  coord_flip(expand = T) +
+  scale_y_discrete(expand = expansion(mult = c(0,0.2))) +
+  scale_x_continuous(limits = c(45, 105), breaks = c(50, 75, 100)) +
+  theme_classic() +
+  facet_wrap(~Condition) +
+  labs(
+    y = "Time Starved (Days)",
+    x = "Appearance Time (hr)"
+  ) +
+  scale_fill_gradient(high = "#EA7A7B", low = "#702727", name = "  Density\n(CFU/mL)", limits = c(8e06, 4e08), breaks = c(3e08, 2e08, 1e08)) +
+  theme(
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    axis.text.y = element_text(size = 16, angle = 90, hjust = 0.5),
+    axis.text.x = element_text(size = 16),
+    axis.ticks.x = element_blank(),
+    axis.ticks.y = element_line(linewidth = 1, color = "black"),
+    plot.title = element_text(size = 20),
+    strip.text = element_blank(),
+    strip.background = element_rect(color = "black", linewidth = 0.75),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.75),
+    panel.spacing = unit(0.5, "lines")
+)
+
+ggsave(filename = "starvation_fig_3B.svg", plot = f3b, width = 11, height = 3.6)
+```
+
+6. Var/Mean Ratio of appearance times for all cultures and conditions (Fig. 3C)
+```{r}
+arisal_stats <- scan_df %>%
+  mutate(Condition = factor(Condition, levels = c("L", "M", "H"))) %>%
+  group_by(Condition, Strain, Time) %>%
+  summarise(mean_arisal = mean(arisal_time),
+            var_arisal = var(arisal_time),
+            med_arisal = median(arisal_time),
+            .groups = "drop") %>%
+  mutate(coeff_var = var_arisal/mean_arisal)
+
+f3c <- arisal_stats %>%
+  mutate(Strain = factor(Strain, levels = c("wt", "kb"))) %>%
+  ggplot(aes(x = Time, y = coeff_var, color = Condition, group = Condition)) +
+  geom_line(linewidth = 1.6, show.legend = F) +
+  geom_point(size = 3.5) +
+  facet_wrap(~Strain, labeller = strain_labs) + 
+  theme_classic() +
+  labs(
+    colour = "Condition",
+    x = "Time Starved (Days)", 
+    y = "Var/Mean\nAppearance Time",
+  ) +
+  theme(
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    legend.position = "bottom",
+    legend.margin = margin(-6,0,0,0),
+    axis.title = element_text(size = 20),
+    axis.text.y = element_text(size = 16, angle = 90, hjust = 0.5),
+    axis.text.x = element_text(size = 16),
+    axis.ticks.x = element_line(linewidth = 1, color = "black"),
+    axis.ticks.y = element_line(linewidth = 1, color = "black"),
+    plot.title = element_text(size = 20),
+    strip.text = ggtext::element_markdown(size = 18, margin = margin(4,4,4,4)),
+    strip.background = element_rect(color = "black", linewidth = 0.75),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.75),
+    panel.spacing = unit(0.5, "lines")
+  ) +
+  guides(color = guide_legend(override.aes = list(size = 4))) +
+  scale_color_manual(values = c("#D1A5E8","#A753D4","#3F085E"), labels = c("Low", "Medium", "High")
+)
+
+ggsave(filename = "starvation_fig_3C.svg", plot = f3c, width = 6, height = 4)
+```
+
+
+7. Sample of colony trajectories from phaC 10 day high osmolarity (Fig. 3D)
+```{r}
+set.seed(121)
+sample_ids <- traj_df %>%
+  filter(Time == 10 & Strain == "kb" & Condition == "H") %>%
+  select(id, Time, Strain, Condition, Replicate) %>%
+  slice_sample(n = 80, replace = F) %>%
+  ungroup()
+
+col_sample <- traj_df %>%
+  semi_join(sample_ids, by = c("id", "Strain", "Time", "Condition", "Replicate"))
+
+f3d <- col_sample %>%
+  ggplot(aes(x = time_hr, y = col_pixel_count, group = interaction(Replicate, id))) +
+  geom_line(color = "#963635", linewidth = 0.7) + 
+  lims(x = c(50, 110)) +
+  theme_classic() + 
+  labs(
+    x = "Time (hr)",
+    y = "Colony Size (pixels)"
+  ) +
+  theme(
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    axis.text.y = element_text(size = 16, angle = 90, hjust = 0.5),
+    axis.text.x = element_text(size = 16),
+    axis.ticks.x = element_line(linewidth = 1, color = "black"),
+    axis.ticks.y = element_line(linewidth = 1, color = "black"),
+    plot.title = element_text(size = 20),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.75)
+  ) +
+    scale_y_continuous(breaks = c(0, 600, 1200), limits = c(0,1500))
+
+ggsave(filename = "starvation_fig_3D.svg", plot = f3d, width = 3.5, height = 3.7)
+```
+
+8. Growth rates of WT in all conditions (Fig. 4A)
+```{r}
+f4a <- density_scan_df %>%
+  filter(Strain == "wt") %>%
+  mutate(Times = factor(Time)) %>%
+  ggplot(aes(x = mumax,
+             y = Times, 
+             group = interaction(Time, Condition),
+             fill = mean_cfu)) +
+  geom_hline(
+  data = density_scan_df %>%
+    mutate(Times = factor(Time)) %>%
+    distinct(Condition, Times),
+  aes(yintercept = as.numeric(Times)),
+  linetype = "solid") +
+  geom_density_ridges(scale = 1.4) +
+  coord_flip(expand = T) +
+  scale_y_discrete(expand = expansion(mult = c(0,0.33))) +
+  scale_x_continuous(limits = c(12, 48), breaks = c(15, 30, 45)) +
+  theme_classic() +
+  facet_wrap(~Condition) +
+  labs(
+    y = "Time Starved (Days)",
+    x = "Growth Rate (pixels/hr)"
+  ) +
+  scale_fill_gradient(high = "#9BB0CC", low = "#192536", name = "  Density\n(CFU/mL)", limits = c(8e06, 4e08), breaks = c(3e08, 2e08, 1e08)) +
+  theme(
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    axis.text.y = element_text(size = 16, angle = 90, hjust = 0.5),
+    axis.text.x = element_text(size = 16),
+    axis.ticks.x = element_blank(),
+    axis.ticks.y = element_line(linewidth = 1, color = "black"),
+    plot.title = element_text(size = 20),
+    strip.text = ggtext::element_markdown(size = 18, margin = margin(4,4,4,4)),
+    strip.background = element_rect(color = "black", linewidth = 0.75),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.75),
+    panel.spacing = unit(0.5, "lines")
+)
+
+ggsave(filename = "starvation_fig_4A.svg", plot = f4a, width = 11, height = 4)
+```
+
+9. Growth rates of phaC in all conditions (Fig. 4B)
+```{r}
+f4b <- density_scan_df %>%
+  filter(Strain == "kb") %>%
+  mutate(Times = factor(Time)) %>%
+  ggplot(aes(x = mumax,
+             y = Times, 
+             group = interaction(Time, Condition),
+             fill = mean_cfu)) +
+  geom_hline(
+  data = density_scan_df %>%
+    mutate(Times = factor(Time)) %>%
+    distinct(Condition, Times),
+  aes(yintercept = as.numeric(Times)),
+  linetype = "solid") +
+  geom_density_ridges(scale = 1.4) +
+  coord_flip(expand = T) +
+  scale_y_discrete(expand = expansion(mult = c(0,0.33))) +
+  scale_x_continuous(limits = c(12, 48), breaks = c(15, 30, 45)) +
+  theme_classic() +
+  facet_wrap(~Condition) +
+  labs(
+    y = "Time Starved (Days)",
+    x = "Growth Rate (pixels/hr)"
+  ) +
+  scale_fill_gradient(high = "#EA7A7B", low = "#702727", name = "  Density\n(CFU/mL)", limits = c(8e06, 4e08), breaks = c(3e08, 2e08, 1e08)) +
+  theme(
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    axis.text.y = element_text(size = 16, angle = 90, hjust = 0.5),
+    axis.text.x = element_text(size = 16),
+    axis.ticks.x = element_blank(),
+    axis.ticks.y = element_line(linewidth = 1, color = "black"),
+    plot.title = element_text(size = 20),
+    strip.text = element_blank(),
+    strip.background = element_rect(color = "black", linewidth = 0.75),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.75),
+    panel.spacing = unit(0.5, "lines")
+)
+
+ggsave(filename = "starvation_fig_4B.svg", plot = f4b, width = 11, height = 3.6)
+```
+
+10. Sample trajectories of WT colonies relative to their appearance time for days 0, 5, and 10 in all conditions (Fig. S3):
+```{r}
+set.seed(37)
+sample_ids <- traj_df %>%
+  filter(Time == c(0,5,10), Strain == "wt") %>%
+  select(id, Time, Strain, Condition, Replicate) %>%
+  group_by(Time, Strain, Condition) %>%
+  slice_sample(n = 15, replace = F)
+
+sample <- traj_df %>%
+  semi_join(sample_ids, by = c("id", "Strain", "Time", "Condition", "Replicate")) %>%
+  select(-c(X, X.1)) %>%
+  group_by(Time, Strain, Condition, Replicate, id) %>%
+  mutate(time_since_appearance = time_hr - time_hr[which(col_pixel_count > 0)[1]])
+
+sample_plot <- sample %>%
+  mutate(
+    time_window = case_when(
+      Time %in% c(0, 5)  ~ "Day 0 vs. 5",
+      Time %in% c(5, 10) ~ "Day 5 vs. 10",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  bind_rows(
+    sample %>% filter(Time == 5) %>% mutate(time_window = "Day 0 vs. 5"),
+    sample %>% filter(Time == 5) %>% mutate(time_window = "Day 5 vs. 10")
+  ) %>%
+  mutate(Condition = factor(Condition, levels = c("L","M","H"),
+         labels = c("Low", "Medium", "High")))
+
+s3 <- sample_plot %>%
+  ggplot(aes(x = time_since_appearance, y = col_pixel_count, group = interaction(factor(id), factor(Time), Replicate), color = factor(Time))) +
+  geom_line(linewidth = 0.8, alpha = 0.8) +
+  labs(
+    x = "Time from Colony Appearance (hr)",
+    y = "Colony Pixel Count",
+    color = "Days Starved"
+  ) +
+  theme_classic() +
+  facet_grid(time_window ~ Condition) +
+  scale_x_continuous(limits = c(0,22), breaks = c(0,10,20)) +
+  scale_y_continuous(limits = c(0,550), breaks = c(0,250,500)) +
+  scale_color_manual(values = c("#0072B2","black","#008E67")) +
+  theme(
+    legend.position = "top",
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    axis.text.y = element_text(size = 16, angle = 90, hjust = 0.5),
+    axis.text.x = element_text(size = 16),
+    axis.ticks.x = element_line(linewidth = 1, color = "black"),
+    axis.ticks.y = element_line(linewidth = 1, color = "black"),
+    plot.title = element_text(size = 20),
+    strip.text = ggtext::element_markdown(size = 18, margin = margin(4,4,4,4)),
+    strip.background = element_rect(color = "black", linewidth = 0.75),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.75),
+  ) +
+  geom_hline(yintercept = 50, linetype = "dashed") +
+  geom_hline(yintercept = 500, linetype = "dashed") +
+  guides(color = guide_legend(override.aes = list(linewidth = 4, alpha = 1)))
+
+ggsave(filename = "starvation_fig_S3.svg", plot = s3, width = 6.5, height = 5.5)
+```
+
+11. Growth rate variance-to-mean ratio from colony distributions (Fig. S4):
+```{r}
+mumax_stats <- scan_df %>%
+  drop_na(mumax) %>%
+  mutate(Condition = factor(Condition, levels = c("L", "M", "H"))) %>%
+  group_by(Condition, Strain, Time) %>%
+  summarise(mean_mumax = mean(mumax),
+            var_mumax = var(mumax),
+            .groups = "drop") %>%
+  mutate(coeff_var = var_mumax/mean_mumax)
+
+s4 <- mumax_stats %>%
+  mutate(Strain = factor(Strain, levels = c("wt", "kb"))) %>%
+  ggplot(aes(x = Time, y = coeff_var, color = Condition, group = Condition)) +
+  geom_line(linewidth = 1.6, show.legend = F) +
+  geom_point(size = 3.5) +
+  facet_wrap(~Strain, labeller = strain_labs) + 
+  theme_classic() +
+  labs(
+    colour = "Condition",
+    x = "Time Starved (Days)", 
+    y = "Var/Mean Growth Rate",
+  ) +
+  theme(
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    legend.position = "top",
+    legend.margin = margin(-6,0,0,0),
+    axis.title = element_text(size = 20),
+    axis.text.y = element_text(size = 16, angle = 90, hjust = 0.5),
+    axis.text.x = element_text(size = 16),
+    axis.ticks.x = element_line(linewidth = 1, color = "black"),
+    axis.ticks.y = element_line(linewidth = 1, color = "black"),
+    plot.title = element_text(size = 20),
+    strip.text = ggtext::element_markdown(size = 18, margin = margin(4,4,4,4)),
+    strip.background = element_rect(color = "black", linewidth = 0.75),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.75),
+    panel.spacing = unit(0.5, "lines")
+  ) +
+  guides(color = guide_legend(override.aes = list(size = 4))) +
+  scale_color_manual(values = c("#D1A5E8","#A753D4","#3F085E"), labels = c("Low","Medium","High"))
+
+
+ggsave(filename = "starvation_fig_S4.svg", plot = s4, width = 6, height = 4)
+```
+
+12. Correlation between growth rate and appearance time at 20 days for WT and phaC (Fig. S5):
+```{r}
+time_cols <- c("0" = "#EA7A7B", "20" = "#702727")
+
+s5 <- scan_df %>%
+  filter(Time == c(0,20)) %>%
+  mutate(Condition = factor(Condition, levels = c("L","M","H"), labels = c("Low", "Medium", "High"))) %>%
+  mutate(Strain = factor(Strain, levels = c("wt", "kb"), labels = c(`wt` = "WT", `kb` = "Δ*phaC*"))) %>%
+  ggplot(aes(x = arisal_time, y = mumax, color = factor(Time))) +
+  geom_point(alpha = 0.5, size = 1.8) +
+  facet_grid(Strain ~ Condition) +
+  theme_classic() +
+  scale_y_continuous(limits = c(17,50), breaks = c(20, 30, 40, 50)) +
+  scale_x_continuous(breaks = c(60, 75, 90)) +
+  labs(
+    x = "Colony Appearance Time (hr)",
+    y = "Growth Rate (pixels/hr)"
+  ) +
+  scale_color_discrete(breaks = c("0", "20"), labels = c("0", "20"), type = time_cols, name = "Days Starved") +
+  guides(color = guide_legend(override.aes = list(size = 4, alpha = 1))) +
+  theme(
+    legend.position = "top",
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    axis.title = element_text(size = 20),
+    axis.text.y = element_text(size = 16, angle = 90, hjust = 0.5),
+    axis.text.x = element_text(size = 16),
+    axis.ticks.x = element_line(linewidth = 1, color = "black"),
+    axis.ticks.y = element_line(linewidth = 1, color = "black"),
+    plot.title = element_text(size = 20),
+    strip.text = ggtext::element_markdown(size = 18, margin = margin(4,4,4,4)),
+    strip.background = element_rect(color = "black", linewidth = 0.75),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.75)
+  )
+
+ggsave(filename = "starvation_fig_S5.svg", plot = s5, width = 6, height = 4.5)
+```
+
+13. Mean and median behavior of colony appearance time and growth rate distributions through time starved (Fig. S6):
+```{r}
+stats <- scan_df %>%
+  select(-c(X.1, X)) %>%
+  drop_na(mumax) %>%
+  group_by(Strain, Condition, Time) %>%
+  summarise(mean_app = mean(arisal_time), med_app = median(arisal_time), mean_growth = mean(mumax), med_growth = median(mumax), across()) %>%
+  ungroup() %>%
+  distinct(Strain, Condition, Time, mean_app, med_app, mean_growth, med_growth) %>%
+  pivot_longer(cols = c(mean_app, med_app, mean_growth, med_growth), names_to = "stat", values_to = "val") %>%
+  mutate(Strain = factor(Strain, levels = c("wt", "kb")))
+
+#s6a
+s6a <- stats %>%
+  filter(stat == "med_app") %>%
+  ggplot(aes(x = Time, y = val, color = Strain, group = interaction(Condition, Strain))) +
+  geom_point(size = 2.5, show.legend = F) +
+  geom_line(aes(linetype = Condition), size = 1.2) +
+  scale_y_continuous(expand = c(0.05, 0.25)) +
+  theme_classic() +
+  labs(
+    x = "Time Starved (Days)",
+    y = "Median Colony\nAppearance Time (hr)",
+    color = ""
+  ) +
+  facet_wrap(~Strain, labeller = strain_labs) +
+  scale_color_discrete(type = strain_cols) +
+  scale_linetype_manual(name = "Osmolarity", values = c("L" = "11", "M" = "31", "H" = "solid"), breaks = c("L", "M", "H"), labels = c("Low", "Medium", "High")) +
+  theme(
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    legend.position = "top",
+    axis.title = element_text(size = 18),
+    axis.text.y = element_text(size = 16, angle = 90, hjust = 0.5),
+    axis.text.x = element_text(size = 16),
+    axis.ticks = element_line(linewidth = 1),
+    plot.title = element_text(size = 20),
+    strip.text = ggtext::element_markdown(size = 18, margin = margin(4,4,4,4)),
+    strip.background = element_rect(color = "black", linewidth = 0.75),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.75),
+    panel.spacing = unit(0.3, "lines")
+  ) +
+  guides(color = "none",
+         linetype = guide_legend(order = 2, keywidth = 2.5, override.aes = list(linewidth = 2)),
+         shape = guide_legend(order = 2, keywidth = 2.5, override.aes = list(size = 5)))
+
+#s6b
+s6b <- stats %>%
+  filter(stat == "med_growth") %>%
+  ggplot(aes(x = Time, y = val, color = Strain, group = interaction(Condition, Strain))) +
+  geom_point(size = 2.5, show.legend = F) +
+  geom_line(aes(linetype = Condition), size = 1.2) +
+  scale_y_continuous(expand = c(0.05, 0.25)) +
+  theme_classic() +
+  labs(
+    x = "Time Starved (Days)",
+    y = "Median Colony\nGrowth Rate (pixels/hr)",
+    color = ""
+  ) +
+  facet_wrap(~Strain, labeller = strain_labs) +
+  scale_color_discrete(type = strain_cols) +
+  scale_linetype_manual(name = "Osmolarity", values = c("L" = "11", "M" = "31", "H" = "solid"), breaks = c("L", "M", "H"), labels = c("Low", "Medium", "High")) +
+  theme(
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    legend.position = "none",
+    axis.title = element_text(size = 18),
+    axis.text.y = element_text(size = 16, angle = 90, hjust = 0.5),
+    axis.text.x = element_text(size = 16),
+    axis.ticks = element_line(linewidth = 1),
+    plot.title = element_text(size = 20),
+    strip.text = element_blank(),
+    strip.background = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.75),
+    panel.spacing = unit(0.3, "lines")
+  ) +
+  guides(color = "none",
+         linetype = guide_legend(order = 2, keywidth = 2.5, override.aes = list(linewidth = 2)),
+         shape = guide_legend(order = 2, keywidth = 2.5, override.aes = list(size = 5)))
+
+
+ggsave(filename = "starvation_fig_S6A.svg", plot = s6a, width = 8, height = 4)
+
+ggsave(filename = "starvation_fig_S6B.svg", plot = s6b, width = 8, height = 3.2)
+```
+
+14. Significance Tests:
+```{r}
+wt_dat_L <- scan_df %>%
+  na.exclude() %>%
+  filter(Strain == "wt", Condition == "L") %>%
+  select(mumax, Time)
+
+wt_dat_M <- scan_df %>%
+  na.exclude() %>%
+  filter(Strain == "wt", Condition == "M") %>%
+  select(mumax, Time)
+
+wt_dat_H <- scan_df %>%
+  na.exclude() %>%
+  filter(Strain == "wt", Condition == "H") %>%
+  select(mumax, Time)
+
+# Low osmolarity, day 0 vs. 5
+t.test(x = wt_dat_L$mumax[wt_dat_L$Time == 0], y = wt_dat_L$mumax[wt_dat_L$Time == 5], alternative = "greater")
+
+# Med osmolarity, day 0 vs. 5
+t.test(x = wt_dat_M$mumax[wt_dat_M$Time == 0], y = wt_dat_M$mumax[wt_dat_M$Time == 5], alternative = "greater")
+
+# High osmolarity, day 0 vs. 5
+t.test(x = wt_dat_H$mumax[wt_dat_H$Time == 0], y = wt_dat_H$mumax[wt_dat_H$Time == 5], alternative = "greater")
+```
+
+```{r}
+library(afex)
+
+# cfu linear mixed model test for significance between low and medium osmolarity in both WT and phaC (kb)
+lmer_dat <- cfus %>%
+  mutate(
+    cond = factor(cond, levels = c("L", "M", "H")),
+    strain = factor(strain),
+    rep = factor(rep),
+    log_cfu = log10(cfus)
+  )
+
+df_wt <- lmer_dat %>% filter(strain == "wt", cond %in% c("L", "M"))
+df_kb <- lmer_dat %>% filter(strain == "kb", cond %in% c("L", "M"))
+
+model_wt_cfu <- lmer(cfus ~ cond + (1|time), data = df_wt)
+model_kb_cfu <- lmer(cfus ~ cond + (1|time), data = df_kb)
+
+summary(model_wt_cfu)
+summary(model_kb_cfu)
+```
+
+```{r}
+# lag linear mixed model test for significance between low and medium osmolarity in both WT and phaC (kb)
+lmer_dat <- curves %>%
+  mutate(
+    cond = factor(cond, levels = c("L", "M", "H")),
+    strain = factor(strain),
+    rep = factor(rep)
+  ) %>%
+  distinct(cond, strain, rep, time, mean_lag, .keep_all = T)
+
+df_wt <- lmer_dat %>% filter(strain == "wt", cond %in% c("L", "M"))
+df_kb <- lmer_dat %>% filter(strain == "kb", cond %in% c("L", "M"))
+
+model_wt_lag <- lmer(lag ~ cond + (1|time), data = df_wt)
+model_kb_lag <- lmer(lag ~ cond + (1|time), data = df_kb)
+
+summary(model_wt_lag)
+summary(model_kb_lag)
+```
+
+
