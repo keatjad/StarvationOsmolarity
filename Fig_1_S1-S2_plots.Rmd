@@ -1,0 +1,512 @@
+---
+title: "starvation_ms_plots_lag"
+author: "keatj"
+date: "2025-11-15"
+output: html_document
+---
+Table of Contents:
+1. Loading and preparing data
+2. Plot of CFU over time in starvation (Fig. 1A)
+3. Plot of Growth Curves at times 0, 4, 10, 16, 20 (Fig. 1B)
+4. Plot of increase in effective lag over time starved (Fig. 1C)
+5. Plot of increase in Physiological Lag over time starved (Fig. 1D)
+6. Growth curves and extraction of growth rate and effective lag, and simulated growth curve (Fig. S1)
+7. Growth rates through starvation show no significant deviation (Fig. S2)
+8. Significance tests
+9. Average rate of death in starvation after last insignificant change in CFU viability
+
+```{r}
+library("growthrates")
+library("reshape2")
+library("tidyr")
+library("lubridate")
+library("lattice")
+library("tidyverse")
+library("broom")
+library("zoo")
+library("ggh4x")
+library("shiny")
+library("lemon")
+library("ggnewscale")
+library("scales")
+```
+
+```{r}
+strain_cols <- c("wt" = "#4E79A7", "kb" = "#E15759")
+wt_cols = c("#9BB0CC", "#4E79A7","#3F6289","#334D6D","#25364E") 
+kb_cols = c("#EA7A7B","#E15759","#B94647","#963635","#702727")
+```
+
+1. Loading and preparing necessary data sets
+```{r}
+library(readxl)
+
+od_dat <- read.csv("od_data_starve_curves.csv") # all OD data with metadata
+curves <- read.csv("fitted_growth_curves_data.csv") #fit_data_final in orig. analysis
+cfus <- read_excel("cfu_counts.xlsx") # cfus in death
+sims <- read.csv("sim_lag_curves_data.csv") # simulated lag
+```
+
+```{r}
+#average and sd lag
+curves_avg <- curves%>%
+  group_by(strain, starve)%>%
+   reframe(mean_mumax = mean(mumax), sd_mumax = sd(mumax), rsq_mean = mean(rsq_x),
+             mean_lag = mean(lag), sd_lag = sd(lag), across()) %>%
+  distinct(starve, strain, .keep_all = T) %>%
+  arrange(strain, as.numeric(starve))
+
+#difference between simulated lag and experimental lag
+diff <- curves %>%
+  mutate(starve = as.numeric(starve)) %>%
+  group_by(starve, strain) %>%
+  merge(sims, by = c("starve", "strain")) %>%
+  arrange(strain, starve) %>%
+  select(strain, starve, well, plate, lag.x, lag.y) %>%
+  mutate(lag_diff = lag.x - lag.y) %>%
+  group_by(starve, strain)%>%
+  reframe(mean_diff = mean(lag_diff), sd_diff = sd(lag_diff), across()) %>%
+  distinct(starve, strain, .keep_all = T) %>%
+  arrange(strain, starve)
+
+# average and sd cfus
+cfus_avg <- cfus %>%
+  drop_na(count) %>%
+  group_by(strain, time) %>%
+  reframe(mean_cfu = mean(cfus)) %>%
+  distinct(strain, time, .keep_all = T) %>%
+  rename(starve = time)
+```
+
+```{r}
+#dataset for curves plot
+int <- od_dat %>%
+  filter(strain != "blank") %>%
+  group_by(plate, well, starve, strain, rep) %>%
+  filter(time_hr <= 40) %>%
+  mutate(starve = as.numeric(starve)) %>%
+  arrange(strain, starve, rep) %>%
+  group_by(plate, strain, starve, time_hr) %>%
+  reframe(mean_od_b = mean(OD_b), sd_od_b = sd(OD_b), across()) %>%
+  distinct(strain, starve, rep, time_hr, .keep_all = T) %>%
+  filter(starve == c(0, 4, 10, 16, 20))
+
+cols <- list( "wt" = c("#9BB0CC", "#4E79A7","#3F6289","#334D6D","#25364E"), 
+              "kb" = c("#EA7A7B","#E15759","#B94647","#963635","#702727"))
+
+starve_levels <- c(0, 4, 10, 16, 20)
+
+color_lookup <- purrr::imap_dfr(cols, ~ tibble(
+  strain = .y,
+  starve = starve_levels,
+  hex_color = .x
+))
+
+int <- int %>%
+  left_join(color_lookup, by = c("strain", "starve")) %>%
+  mutate(strain_starve = paste0(strain, "_", starve)) %>%
+  mutate(strain = factor(strain, levels = c("wt", "kb")))
+
+#Define the color mappings
+kb_colors <- int %>%
+  filter(strain == "kb") %>%
+  mutate(starve = as.numeric(starve)) %>%
+  distinct(starve, hex_color) %>%
+  deframe()
+
+wt_colors <- int %>%
+  filter(strain == "wt") %>%
+  mutate(starve = as.numeric(starve)) %>%
+  distinct(starve, hex_color) %>%
+  deframe()
+```
+
+
+2. Plot of CFUs over time in starvation (Fig. 1A)
+```{r}
+f1a <- cfus_avg %>%
+  ggplot(aes(x = starve, y = mean_cfu, color = strain, group = strain), ) +
+  geom_point(size = 3.5, show.legend = T) +
+  geom_line(linewidth = 1.5, show.legend = F) +
+  scale_y_log10(limits = c(5e06, 5e08), breaks = c(5e06, 5e07, 5e08), expand = expansion(mult = c(0.08,0.1))) +
+  theme_classic() +
+  labs(
+    x = "Time Starved (Days)",
+    y = "Viability (CFU/mL)",
+    color = "Strain"
+  ) +
+  scale_color_discrete(labels = c(expression("Δ"*italic("phaC")), expression("WT")), type = strain_cols) +
+  theme(
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    legend.position = "top",
+    axis.title = element_text(size = 20),
+    axis.text.y = element_text(size = 16, angle = 90, hjust = 0.5),
+    axis.text.x = element_text(size = 16),
+    axis.ticks = element_line(linewidth = 1),
+    plot.title = element_text(size = 20),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.75),
+    panel.spacing = unit(0.3, "lines")
+  ) +
+  guides(color = guide_legend(override.aes = list(size = 5)))
+
+ggsave(filename = "starvation_fig_1A.svg", plot = f1a, width = 6, height = 4.5)
+```
+
+3. Plot of Growth Curves at times 0, 4, 10, 16, 20 (Fig. 1B)
+```{r}
+library(ggnewscale)
+
+f1b <- ggplot() +
+  #layer for WT
+  geom_point(data = int %>% filter(strain == "wt"),
+             aes(x = time_hr, y = mean_od_b, color = as.factor(starve)),
+             size = 3) +
+  scale_color_manual(
+    name = "  Days\nStarved",
+    values = wt_colors,
+    labels = c("0", "4", "10", "16", "20"),
+    guide = guide_legend(order = 1, override.aes = list(size = 4))
+  ) +
+  
+  # Layer for phaC
+  new_scale_color() +
+  geom_point(data = int %>% filter(strain == "kb"),
+             aes(x = time_hr, y = mean_od_b, color = as.factor(starve)),
+             size = 3) +
+  scale_color_manual(
+    name = "  Days\nStarved",
+    values = kb_colors,
+    labels = c("0", "4", "10", "16", "20"),
+    guide = guide_legend(order = 2, override.aes = list(size = 4))
+  ) +
+  
+  facet_rep_wrap(~strain, nrow = 2, scales = "fixed") +
+  scale_y_continuous(breaks = c(0.0, 0.2, 0.4), expand = expansion(mult = c(0.05, 0.1))) +
+  theme_classic() +
+  labs(
+    x = "Time (hr)",
+    y = expression("OD"[600])
+  ) +
+  theme(
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    legend.position = "right",
+    axis.title = element_text(size = 20),
+    axis.text.y = element_text(size = 16, angle = 90, hjust = 0.5),
+    axis.text.x = element_text(size = 16),
+    axis.ticks = element_line(linewidth = 1),
+    plot.title = element_text(size = 20),
+    strip.text = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.75),
+    panel.spacing = unit(0.3, "lines")
+  ) +
+  coord_cartesian(clip = "off")
+
+ggsave(filename = "starvation_fig_1B.svg", plot = f1b, width = 6.5, height = 4.6)
+```
+4. Plot of increase in effective lag over time starved (Fig. 1C)
+```{r}
+f1c <- curves_avg %>%
+  ggplot(aes(x = starve, y = mean_lag, color = strain)) +
+  geom_line(linewidth = 1.5) +
+  geom_errorbar(aes(ymin = mean_lag - sd_lag, ymax = mean_lag + sd_lag), color = "black", width = 0.4, linewidth = 1.0) +
+  scale_y_continuous(breaks = c(5, 15, 25)) +
+  scale_color_discrete(labels = c(expression("Δ"*italic("phaC")), expression("WT")), 
+                       type = strain_cols) +
+  theme_classic() +
+  labs(
+    x = "Time Starved (Days)",
+    y = "Effective Lag (hr)",
+    color = "Strain"
+  ) +
+  theme(
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    legend.position = "top",
+    axis.title = element_text(size = 20),
+    axis.text.y = element_text(size = 16, angle = 90, hjust = 0.5),
+    axis.text.x = element_text(size = 16),
+    axis.ticks = element_line(linewidth = 1),
+    plot.title = element_text(size = 20),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.75),
+    panel.spacing = unit(0.3, "lines")
+  ) +
+  guides(color = guide_legend(override.aes = list(linewidth = 3)))
+
+ggsave(filename = "starvation_fig_1C.svg", plot = f1c, width = 5.5, height = 5.2)
+```
+  
+5. Plot of increase in Physiological Lag over time starved (Fig. 1D)
+```{r}
+f1d <- diff %>%
+  ggplot(aes(x = starve, y = mean_diff, color = strain)) +
+  geom_line(linewidth = 1.8) +
+  geom_errorbar(aes(ymin = mean_diff - sd_diff, ymax = mean_diff + sd_diff), width = 0.4, linewidth = 1, color = "black") +
+  scale_y_continuous(breaks = c(0,5,10), expand = expansion(mult = c(0.02, 0.1))) +
+  theme_classic() +
+  scale_color_discrete(labels = c(expression("Δ"*italic("phaC")), expression("WT")), type = strain_cols) +
+  labs(
+    x = "Time Starved (Days)",
+    y = "Physiological Lag (hr)",
+    color = "Strain"
+  ) +
+  theme(
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    legend.position = "none",
+    axis.title = element_text(size = 20),
+    axis.text.y = element_text(size = 16, angle = 90, hjust = 0.5),
+    axis.text.x = element_text(size = 16),
+    axis.ticks = element_line(linewidth = 1),
+    plot.title = element_text(size = 20),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.75),
+    panel.spacing = unit(0.3, "lines")
+  ) +
+  guides(color = guide_legend(override.aes = list(linewidth = 3)))
+
+ggsave(filename = "starvation_fig_1D.svg", plot = f1d, width = 5.5, height = 4.6)
+```
+
+6. Growth curves and extraction of growth rate and effective lag, and simulated growth curve (Fig. S1)
+```{r}
+time_cols <- c("0" = "#EA7A7B", "20" = "#702727")
+
+s1 <- int %>%
+  filter(strain == "kb", starve %in% c(0,20), time_hr >= 1) %>%
+  ggplot(aes(x = (time_hr-1), y = mean_od_b, color = factor(starve))) +
+  geom_point(size = 3) +
+  theme_classic() +
+  labs(
+    x = "Time (hr)",
+    y = expression("OD"[600])
+  ) +
+  lims(
+    x = c(0,40)
+  ) +
+  scale_y_continuous(trans = log_trans(base = exp(1)), breaks = c(0.02, 0.1, 0.4), expand = expansion(mult = c(0.05, 0.1))) +
+  scale_color_manual(values = time_cols, name = "  Days\nStarved") +
+  theme(
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    legend.position = "right",
+    axis.title = element_text(size = 20),
+    axis.text.y = element_text(size = 16, angle = 90, hjust = 0.5),
+    axis.text.x = element_text(size = 16),
+    axis.ticks = element_line(linewidth = 1),
+    plot.title = element_text(size = 20),
+    strip.text = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.75),
+    panel.spacing = unit(0.3, "lines")
+  ) +
+  guides(color = guide_legend(override.aes = list(size = 4)))
+
+stn_kb <- read_excel("death/od_cfu_standard.xlsx") %>%
+  filter(strain == "kb")
+lin_kb <- lm(stn_kb$cfu ~ 0 + stn_kb$OD_b)
+
+n0 <- 120000
+r <- 0.268
+t <- seq(0, 45, by = 0.5)
+N <- c()
+  for (j in 1:length(t)) {
+    N[j] <- n0*exp(r*(t[j]))
+    if (N[j] >= 1.6e08) {
+       N[j] <- 1.6e08
+    }
+  }
+
+for (k in 1:length(N)) {
+  N[k] = (N[k])/lin_kb[[1]][1]
+  if (N[k] <= 0.02) {
+     N[k] <- 0.02
+  }
+}
+
+sim <- data.frame(od = N, time = seq(1,46, by = 0.5))
+s1 <- s1 + geom_point(data = sim[1:80,], 
+                aes(x = (time-1), y = od), 
+                inherit.aes = F,
+                size = 2.5,
+                color = "darkgray")
+
+ggsave(filename = "starvation_fig_S1.svg", plot = s1, width = 7, height = 4)
+```
+
+7. Log plot of cultures and growth rates of cultures through time starved to show no significant difference (Fig. S2):
+```{r}
+s2a <- ggplot() +
+  # layer for WT
+  geom_point(data = int %>% filter(strain == "wt"),
+             aes(x = time_hr, y = mean_od_b, color = as.factor(starve)),
+             size = 3) +
+  scale_color_manual(
+    name = "  Days\nStarved",
+    values = wt_colors,
+    labels = c("0", "4", "10", "16", "20"),
+    guide = guide_legend(order = 1, override.aes = list(size = 4))
+  ) +
+  
+  # layer for phaC
+  new_scale_color() +
+  geom_point(data = int %>% filter(strain == "kb"),
+             aes(x = time_hr, y = mean_od_b, color = as.factor(starve)),
+             size = 3) +
+  scale_color_manual(
+    name = "  Days\nStarved",
+    values = kb_colors,
+    labels = c("0", "4", "10", "16", "20"),
+    guide = guide_legend(order = 2, override.aes = list(size = 4))
+  ) +
+  
+  facet_rep_wrap(~strain, nrow = 2, scales = "fixed") +
+  scale_y_continuous(trans = log_trans(base = exp(1)), breaks = c(0.02, 0.1, 0.4), expand = expansion(mult = c(0.05, 0.1))) +
+  theme_classic() +
+  labs(
+    x = "Time (hr)",
+    y = expression("OD"[600])
+  ) +
+  theme(
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    legend.position = "right",
+    axis.title = element_text(size = 20),
+    axis.text.y = element_text(size = 16, angle = 90, hjust = 0.5),
+    axis.text.x = element_text(size = 16),
+    axis.ticks = element_line(linewidth = 1),
+    plot.title = element_text(size = 20),
+    strip.text = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.75),
+    panel.spacing = unit(0.3, "lines")
+  ) +
+  coord_cartesian(clip = "off")
+
+ggsave(filename = "starvation_fig_S2A.svg", plot = s2a, width = 9, height = 5)
+```
+
+```{r}
+curves_avg_plot <- curves_avg %>%
+  mutate(
+    lower_ci = mean_mumax - qt(0.975, df = 2) * (sd_mumax/sqrt(3)),
+    upper_ci = mean_mumax + qt(0.975, df = 2) * (sd_mumax/sqrt(3))
+  )
+
+s2b <- curves_avg_plot%>%
+  distinct(starve, strain, .keep_all = T) %>%
+  ggplot(aes(x = factor(starve), y = mean_mumax, fill = strain)) +
+  geom_bar(stat = "identity", color = "black", size = 1,
+           position = position_dodge(width = -0.7)) +
+  geom_errorbar(aes(ymin = lower_ci, ymax = upper_ci), 
+                width = 0.25, size = 1, position = position_dodge(width = -0.7)) +
+  labs(
+      y = expression("Maximum Growth Rate (hr "^-1*")"),
+      x = "Time Starved (Days)",
+      fill = "Strain"
+    ) + 
+  scale_fill_manual(values = strain_cols, labels = c(expression("Δ"*italic("phaC")), expression("WT"))) +
+  scale_y_continuous(limits = c(0, 0.3), breaks = c(0, 0.1, 0.2, 0.3)) +
+  theme_classic() +
+  theme(
+      legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    legend.position = "none",
+    axis.title = element_text(size = 20),
+    axis.text.y = element_text(size = 16, angle = 90, hjust = 0.5),
+    axis.text.x = element_text(size = 16),
+    axis.ticks = element_line(linewidth = 1),
+    plot.title = element_text(size = 20),
+    strip.text = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.75),
+    panel.spacing = unit(0.3, "lines")
+    )
+
+ggsave(filename = "starvation_fig_S2B.svg", plot = s2b, width = 5.5, height = 4.2)
+```
+
+```{r}
+overall_avg <- curves_avg %>%
+  group_by(strain) %>%
+  summarize(overall_mumax = mean(mean_mumax), overall_sd = sd(mean_mumax), across()) %>%
+  distinct(strain, .keep_all = T) %>%
+  mutate(strain = factor(strain, levels = c("wt", "kb"), labels = c(expression("WT"), expression("Δ"*italic("phaC")))))
+
+s2c <- overall_avg%>%
+  ggplot(aes(x = strain, y = overall_mumax, fill = strain)) +
+  geom_bar(stat = "identity", color = "black", size = 1,
+           position = position_dodge(width = -0.7)) +
+  geom_errorbar(aes(ymin = overall_mumax - overall_sd, ymax = overall_mumax + overall_sd), 
+                width = 0.25, size = 1) +
+  labs(
+      y = expression("Average Growth Rate (hr "^-1*")"),
+      x = "Strain",
+      fill = "Strain"
+    ) + 
+  scale_fill_manual(values = c("#4E79A7", "#E15759")) +
+  scale_y_continuous(limits = c(0, 0.3), breaks = c(0, 0.1, 0.2, 0.3)) +
+  scale_x_discrete(labels = c(expression("WT"), expression("Δ"*italic("phaC")))) +
+  theme_classic() +
+  theme(
+      legend.title = element_text(size = 20),
+    legend.text = element_text(size = 18),
+    legend.position = "none",
+    axis.title = element_text(size = 20),
+    axis.text.y = element_text(size = 16, angle = 90, hjust = 0.5),
+    axis.text.x = element_text(size = 16),
+    axis.ticks = element_line(linewidth = 1),
+    plot.title = element_text(size = 20),
+    strip.text = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.75),
+    panel.spacing = unit(0.3, "lines")
+    )
+
+ggsave(filename = "starvation_fig_S2C.svg", plot = s2c, width = 2.5, height = 4.2)
+```
+
+8. Significance Tests
+```{r}
+# cfus of wt 0 day vs 12 day:
+wt_0_cfu <- cfus %>%
+  filter(strain == "wt", time == 0)
+
+wt_12_cfu <- cfus %>%
+  drop_na(count) %>%
+  filter(strain == "wt", time == 12)
+
+# significance test:
+t.test(x = wt_0_cfu$cfus, y = wt_12_cfu$cfus, alternative = "g")
+```
+
+```{r}
+# lag of wt 0 day vs. 6 day:
+wt_0_lag <- curves %>%
+  filter(strain == "wt", starve == 0)
+
+wt_4_lag <- curves %>%
+  filter(strain == "wt", starve == 4)
+
+# significance test:
+t.test(x = wt_0_lag$lag, y = wt_4_lag$lag, alternative = "l")
+```
+
+9. Average rate of death in starvation after last nonsignificant change in CFU viability
+```{r}
+# death rate for WT
+wt_dr <- cfus_avg %>%
+  filter(starve >= 14, strain == "wt")
+
+fit_wt <- wt_dr %>%
+  lm(log(mean_cfu) ~ starve, data = .)
+
+slope_wt <- coef(fit_wt)["starve"]
+slope_wt
+
+#death rate for phaC
+kb_dr <- cfus_avg %>%
+  filter(starve >= 6, strain == "kb")
+
+fit_kb <- kb_dr %>%
+  lm(log(mean_cfu) ~ starve, data = .)
+
+slope_kb <- coef(fit_kb)["starve"]
+slope_kb
+```
